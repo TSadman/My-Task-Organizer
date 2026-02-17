@@ -3,274 +3,156 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 
-# --- 1. CONFIGURATION & CSS ---
-st.set_page_config(
-    page_title="Task Planner",
-    page_icon="✅",
-    layout="centered",
-    initial_sidebar_state="expanded" 
-)
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="Task Planner", layout="centered")
 
-# Custom CSS for Mobile Touch Targets & Dark Mode adjustments
+# --- CUSTOM CSS FOR MOBILE (S23 FE Optimization) ---
 st.markdown("""
     <style>
-    /* Bigger buttons for mobile */
-    .stButton button { height: 3.5em; font-weight: bold; }
-    /* Hide Deploy Button */
-    .stDeployButton { visibility: hidden; }
-    /* Adjust checkbox size */
-    .stCheckbox { transform: scale(1.2); }
+    /* Force Dark Background */
+    .stApp { background-color: #000000; }
+    
+    /* Make buttons taller for mobile tapping */
+    div.stButton > button {
+        width: 100%;
+        height: 3.5em;
+        border-radius: 10px;
+        font-weight: bold;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+    }
+    
+    /* Task Card Styling */
+    .task-card {
+        background-color: #1E1E1E;
+        padding: 15px;
+        border-radius: 12px;
+        border-left: 5px solid #BB86FC;
+        margin-bottom: 15px;
+    }
+    .urgent-card { border-left: 5px solid #FF4B4B ! evasion; }
+    .completed-card { opacity: 0.5; text-decoration: line-through; border-left: 5px solid #4CAF50; }
+    
+    /* Mobile-first adjustments */
+    @media (max-width: 640px) {
+        .stMarkdown h1 { font-size: 1.8rem !important; }
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. SECURITY & AUTHENTICATION ---
-def check_password():
-    """Returns `True` if the user had the correct password."""
-
-    # A. Check for "Magic Link" (?p=PASSWORD)
-    # This allows you to bookmark the app with the password included
-    params = st.query_params
-    
-    # Handle local testing fallback
-    if "password" not in st.secrets:
-        # If no secrets file exists (local run), default to "admin"
-        if params.get("p") == "admin": return True
-        correct_password = "admin"
-    else:
-        # If on Cloud, use the real secret
-        if params.get("p") == st.secrets["password"]: return True
-        correct_password = st.secrets["password"]
-
-    # B. Standard Login Form
-    def password_entered():
-        if st.session_state["password"] == correct_password:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        st.header("🔒 Login")
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.info(f"💡 Hint: If running locally, the password is: **{correct_password}**")
-        return False
-    elif not st.session_state["password_correct"]:
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.error("😕 Password incorrect")
-        return False
-    else:
-        return True
-
-# STOP APP IF PASSWORD FAILS
-if not check_password():
-    st.stop()
-
-
-# --- 3. DATA FUNCTIONS ---
-TASK_FILE = 'tasks.csv'
-CAT_FILE = 'categories.csv'
+# --- DATA PERSISTENCE ---
+TASKS_FILE = "tasks.csv"
+CATS_FILE = "categories.csv"
 
 def load_data():
-    # Load Tasks
-    if os.path.exists(TASK_FILE):
-        df_tasks = pd.read_csv(TASK_FILE)
-        if 'Target_Date' not in df_tasks.columns:
-            df_tasks['Target_Date'] = None
-    else:
-        df_tasks = pd.DataFrame(columns=["Category", "Task", "Created_At", "Target_Date", "Status"])
-    
-    # Load Categories
-    if os.path.exists(CAT_FILE):
-        df_cats = pd.read_csv(CAT_FILE)
-        categories = df_cats['Category_Name'].tolist()
-    else:
-        categories = ["NCE", "Personal Life", "Papers"]
-        pd.DataFrame({'Category_Name': categories}).to_csv(CAT_FILE, index=False)
-        
-    return df_tasks, categories
+    if os.path.exists(TASKS_FILE):
+        df = pd.read_csv(TASKS_FILE)
+        df['target_date'] = pd.to_datetime(df['target_date'])
+        return df
+    return pd.DataFrame(columns=["id", "workspace", "task", "target_date", "is_urgent", "completed"])
 
-def save_tasks(df):
-    df.to_csv(TASK_FILE, index=False)
+def load_cats():
+    if os.path.exists(CATS_FILE):
+        return pd.read_csv(CATS_FILE)['name'].tolist()
+    return ["Personal", "NCE", "Papers"]
 
-def save_categories(cat_list):
-    pd.DataFrame({'Category_Name': cat_list}).to_csv(CAT_FILE, index=False)
+def save_data(df):
+    df.to_csv(TASKS_FILE, index=False)
 
-def check_urgency(target_date_str, status):
-    """Returns True if task is pending AND due within 1 day."""
-    if status == 'Completed' or pd.isna(target_date_str) or str(target_date_str).strip() == "":
-        return False
-    try:
-        target = datetime.strptime(str(target_date_str), "%Y-%m-%d").date()
-        today = datetime.now().date()
-        days_remaining = (target - today).days
-        return days_remaining <= 1
-    except:
-        return False
+def save_cats(cats):
+    pd.DataFrame({"name": cats}).to_csv(CATS_FILE, index=False)
 
-# Load Data
-df, category_list = load_data()
+# --- APP LOGIC ---
+df = load_data()
+categories = load_cats()
 
-
-# --- 4. SIDEBAR NAVIGATION ---
+# Sidebar: Workspace Management
 st.sidebar.title("🗂️ Workspaces")
 
-# A. Workspace List with Stats
-radio_options = {} 
-for cat in category_list:
-    pending_tasks = df[(df['Category'] == cat) & (df['Status'] != 'Completed')]
+formatted_cats = []
+for cat in categories:
+    cat_tasks = df[df['workspace'] == cat]
+    urgent_count = len(cat_tasks[(cat_tasks['is_urgent'] == True) & (cat_tasks['completed'] == False)])
+    pending_count = len(cat_tasks[cat_tasks['completed'] == False])
     
-    # Calculate Urgency Count
-    u_count = 0
-    for _, row in pending_tasks.iterrows():
-        if check_urgency(row['Target_Date'], row['Status']):
-            u_count += 1
-            
-    p_count = len(pending_tasks)
-    
-    # Icons: Checkmark if empty, Box if busy
-    icon = "✅" if p_count == 0 else "⬜"
-    
-    # Label formatting
-    label = f"{icon} {cat} (U:{u_count} / P:{p_count})"
-    radio_options[label] = cat
+    label = f"{cat} (U:{urgent_count} / P:{pending_count})"
+    if pending_count == 0 and len(cat_tasks) > 0:
+        label += " ✅"
+    formatted_cats.append(label)
 
-# B. Selector
-if radio_options:
-    selected_label = st.sidebar.radio("Go to:", list(radio_options.keys()), label_visibility="collapsed")
-    current_category = radio_options[selected_label]
-else:
-    current_category = "No Categories"
+selected_label = st.sidebar.radio("Go to:", formatted_cats)
+current_ws = categories[formatted_cats.index(selected_label)]
 
 st.sidebar.markdown("---")
-
-# C. Add New Workspace
-if "show_add_cat" not in st.session_state:
-    st.session_state.show_add_cat = False
-
-if st.sidebar.button("➕ New Workspace", use_container_width=True):
-    st.session_state.show_add_cat = not st.session_state.show_add_cat
-
-if st.session_state.show_add_cat:
-    with st.sidebar.container():
-        new_cat_name = st.text_input("Name:", key="new_cat_input")
-        if st.button("Save", use_container_width=True):
-            if new_cat_name and new_cat_name not in category_list:
-                category_list.append(new_cat_name)
-                save_categories(category_list)
-                st.session_state.show_add_cat = False
-                st.rerun()
-
-# D. Delete Workspace
-with st.sidebar.expander("⚙️ Manage Workspaces"):
-    cat_to_delete = st.selectbox("Delete:", ["Select..."] + category_list)
-    if st.button("Delete Selected", use_container_width=True):
-        if cat_to_delete != "Select...":
-            category_list.remove(cat_to_delete)
-            save_categories(category_list)
-            st.rerun()
-
-
-# --- 5. MAIN INTERFACE ---
-st.title(f"{current_category}")
-
-# A. Task Input
-with st.container():
-    col_in, col_btn = st.columns([0.85, 0.15]) # Input | Add
-    new_task = st.text_input("New Task", placeholder="Type specific task...", label_visibility="collapsed")
-    
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        # Follow-up days (0 = None)
-        days_followup = st.number_input("Follow-up in (days):", min_value=0, value=0, help="0 = No deadline")
-    with c2:
-        st.write("") # Spacer
-        st.write("") # Spacer
-        add_btn = st.button("➕ Add", use_container_width=True, type="primary")
-
-    if add_btn and new_task:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        
-        # Calculate Target Date
-        if days_followup > 0:
-            target_date = (datetime.now() + timedelta(days=days_followup)).strftime("%Y-%m-%d")
-        else:
-            target_date = None 
-            
-        new_entry = pd.DataFrame([{
-            "Category": current_category,
-            "Task": new_task,
-            "Created_At": timestamp,
-            "Target_Date": target_date,
-            "Status": "Pending"
-        }])
-        df = pd.concat([df, new_entry], ignore_index=True)
-        save_tasks(df)
+new_cat = st.sidebar.text_input("New Workspace")
+if st.sidebar.button("Add Workspace"):
+    if new_cat and new_cat not in categories:
+        categories.append(new_cat)
+        save_cats(categories)
         st.rerun()
 
-st.markdown("---")
+if st.sidebar.button("Delete Current Workspace"):
+    if len(categories) > 1:
+        categories.remove(current_ws)
+        df = df[df['workspace'] != current_ws]
+        save_cats(categories)
+        save_data(df)
+        st.rerun()
 
-# B. Task List
-# Filter tasks
-cat_tasks = df[df['Category'] == current_category].copy()
+# --- MAIN UI ---
+st.title(f"🚀 {current_ws}")
 
-# Sort Logic: Urgent -> Pending -> Date Created
-cat_tasks['is_urgent_sort'] = cat_tasks.apply(lambda x: check_urgency(x['Target_Date'], x['Status']), axis=1)
-cat_tasks = cat_tasks.sort_values(by=['Status', 'is_urgent_sort', 'Created_At'], ascending=[True, False, False])
+# Task Input Section
+with st.expander("➕ Add New Task", expanded=False):
+    t_name = st.text_input("Task Name")
+    t_days = st.number_input("Follow-up in X Days", min_value=0, value=3)
+    
+    if st.button("Create Task"):
+        if t_name:
+            target = datetime.now() + timedelta(days=t_days)
+            is_urgent = t_days <= 1
+            new_row = {
+                "id": int(datetime.now().timestamp()),
+                "workspace": current_ws,
+                "task": t_name,
+                "target_date": target,
+                "is_urgent": is_urgent,
+                "completed": False
+            }
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            save_data(df)
+            st.rerun()
 
-if not cat_tasks.empty:
-    for index, row in cat_tasks.iterrows():
+# Filtering and Sorting
+ws_df = df[df['workspace'] == current_ws].copy()
+# Sort: Urgent -> Pending -> Completed
+ws_df['sort_val'] = ws_df['completed'].astype(int) * 2 + (~ws_df['is_urgent']).astype(int)
+ws_df = ws_df.sort_values('sort_val')
+
+# Display Tasks
+for _, row in ws_df.iterrows():
+    status_class = "completed-card" if row['completed'] else ("urgent-card" if row['is_urgent'] else "task-card")
+    status_text = "🚨 URGENT" if row['is_urgent'] and not row['completed'] else "📅 Pending"
+    if row['completed']: status_text = "✅ Done"
+    
+    with st.container():
+        st.markdown(f"""
+            <div class="task-card {status_class}">
+                <h3 style="margin:0;">{row['task']}</h3>
+                <p style="margin:0; font-size:0.8em; color:#BB86FC;">Target: {row['target_date'].strftime('%Y-%m-%d')} | {status_text}</p>
+            </div>
+            """, unsafe_allow_html=True)
         
-        is_urgent = check_urgency(row['Target_Date'], row['Status'])
-        
-        # Styling based on status
-        if row['Status'] == 'Completed':
-            opacity = "0.5"
-            check_icon = "↩️" # Undo symbol
-            urgency_badge = ""
-            task_text = f"~~{row['Task']}~~"
-        else:
-            opacity = "1.0"
-            check_icon = "✅" # Complete symbol
-            task_text = f"**{row['Task']}**"
-            
-            if is_urgent:
-                urgency_badge = "🔴 **URGENT**"
-            elif row['Target_Date']:
-                urgency_badge = f"🗓️ Due: {row['Target_Date']}"
-            else:
-                urgency_badge = ""
-
-        # Render Card
-        with st.container():
-            # Use columns: [Text Area] [Action Buttons]
-            c1, c2 = st.columns([5, 1.5])
-            
-            with c1:
-                # Badge line
-                if urgency_badge:
-                    if "URGENT" in urgency_badge:
-                        st.markdown(f":red[{urgency_badge}]")
-                    else:
-                        st.caption(urgency_badge)
-                
-                # Main Text
-                st.markdown(task_text)
-                st.caption(f"Created: {row['Created_At']}")
-            
-            with c2:
-                # Stack buttons vertically
-                if st.button(check_icon, key=f"done_{index}", use_container_width=True):
-                    new_status = "Pending" if row['Status'] == 'Completed' else "Completed"
-                    df.at[index, 'Status'] = new_status
-                    save_tasks(df)
-                    st.rerun()
-                
-                if st.button("🗑️", key=f"del_{index}", use_container_width=True):
-                    df = df.drop(index)
-                    save_tasks(df)
-                    st.rerun()
-            
-            st.divider()
-
-else:
-    st.info("No tasks in this workspace.")
+        col1, col2 = st.columns(2)
+        with col1:
+            btn_label = "Undo" if row['completed'] else "Complete"
+            if st.button(btn_label, key=f"comp_{row['id']}"):
+                df.loc[df['id'] == row['id'], 'completed'] = not row['completed']
+                save_data(df)
+                st.rerun()
+        with col2:
+            if st.button("🗑️ Delete", key=f"del_{row['id']}"):
+                df = df[df['id'] != row['id']]
+                save_data(df)
+                st.rerun()
+    st.markdown("---")
