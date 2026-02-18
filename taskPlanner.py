@@ -52,7 +52,7 @@ def check_password():
     if "password_correct" not in st.session_state:
         st.header("🔒 Login")
         st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.info(f"💡 Hint: If running locally, the password is: **{correct_password}**")
+        #st.info(f"💡 Hint: If running locally, the password is: **{correct_password}**")
         return False
     elif not st.session_state["password_correct"]:
         st.text_input("Password", type="password", on_change=password_entered, key="password")
