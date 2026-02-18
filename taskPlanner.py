@@ -55,9 +55,17 @@ CATS_FILE = "categories.csv"
 
 def load_data():
     if os.path.exists(TASKS_FILE):
-        df = pd.read_csv(TASKS_FILE)
-        df['target_date'] = pd.to_datetime(df['target_date'])
-        return df
+        try:
+            df = pd.read_csv(TASKS_FILE)
+            if df.empty:
+                return pd.DataFrame(columns=["id", "workspace", "task", "target_date", "is_urgent", "completed"])
+            # Ensure target_date is converted to datetime objects
+            df['target_date'] = pd.to_datetime(df['target_date'])
+            return df
+        except (pd.errors.EmptyDataError, KeyError):
+            # If file is empty or missing columns, return empty DF with correct headers
+            return pd.DataFrame(columns=["id", "workspace", "task", "target_date", "is_urgent", "completed"])
+            
     return pd.DataFrame(columns=["id", "workspace", "task", "target_date", "is_urgent", "completed"])
 
 def load_cats():
