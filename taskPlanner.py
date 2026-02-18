@@ -23,49 +23,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. SECURITY & AUTHENTICATION ---
-def check_password():
-    """Returns `True` if the user had the correct password."""
-
-    # A. Check for "Magic Link" (?p=PASSWORD)
-    # This allows you to bookmark the app with the password included
-    params = st.query_params
-    
-    # Handle local testing fallback
-    if "password" not in st.secrets:
-        # If no secrets file exists (local run), default to "admin"
-        if params.get("p") == "admin": return True
-        correct_password = "admin"
-    else:
-        # If on Cloud, use the real secret
-        if params.get("p") == st.secrets["password"]: return True
-        correct_password = st.secrets["password"]
-
-    # B. Standard Login Form
-    def password_entered():
-        if st.session_state["password"] == correct_password:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        st.header("🔒 Login")
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        #st.info(f"💡 Hint: If running locally, the password is: **{correct_password}**")
-        return False
-    elif not st.session_state["password_correct"]:
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.error("😕 Password incorrect")
-        return False
-    else:
-        return True
-
-# STOP APP IF PASSWORD FAILS
-if not check_password():
-    st.stop()
-
-
 # --- 3. DATA FUNCTIONS ---
 TASK_FILE = 'tasks.csv'
 CAT_FILE = 'categories.csv'
